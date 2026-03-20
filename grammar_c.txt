@@ -1,0 +1,32 @@
+program ::= {function | declaration}
+
+  function ::= type ident "(" [params] ")" block
+
+  params ::= type ident {"," type ident}
+
+  block ::= "{" {statement} "}"
+
+  statement ::= declaration ";"
+      | ident "=" expression ";"
+      | ident "++" ";"
+      | ident "--" ";"
+      | "if" "(" comparison ")" block ["else" block]
+      | "while" "(" comparison ")" block
+      | "for" "(" declaration ";" comparison ";" ident "=" expression ")" block
+      | "return" [expression] ";"
+
+  declaration ::= type ident ["=" expression]
+
+  type ::= "int" | "float" | "char" | "void"
+
+  comparison ::= expression (("==" | "!=" | ">" | ">=" | "<" | "<=") expression)+
+
+  expression ::= term {("+" | "-") term}
+
+  term ::= unary {("/" | "*" | "%") unary}
+
+  unary ::= ["+" | "-" | "!"] primary
+
+  primary ::= number | ident | string | "(" expression ")" | ident "(" [args] ")"
+
+  args ::= expression {"," expression}

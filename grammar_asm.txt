@@ -1,0 +1,168 @@
+C Grammar → x86-64 NASM Assembly Mapping
+==========================================
+
+program ::= {function}
+  → section .data        ; string literals
+    section .bss         ; uninitialized globals
+    section .text
+    global main
+
+function ::= type ident "(" [params] ")" block
+  → ident:
+      push rbp
+      mov rbp, rsp
+      sub rsp, N          ; N = total bytes for local variables (16-byte aligned)
+      ; params: rdi→[rbp-4], rsi→[rbp-8], rdx→[rbp-12], rcx→[rbp-16], r8→[rbp-20], r9→[rbp-24]
+      ; ... block ...
+      leave
+      ret
+
+params ::= type ident {"," type ident}
+  → mov [rbp-4], edi     ; 1st arg
+    mov [rbp-8], esi     ; 2nd arg
+    mov [rbp-12], edx    ; 3rd arg
+    mov [rbp-16], ecx    ; 4th arg
+    mov [rbp-20], r8d    ; 5th arg
+    mov [rbp-24], r9d    ; 6th arg
+
+block ::= "{" {statement} "}"
+  → ; no direct asm, just contains statements
+
+declaration ::= type ident ["=" expression]
+  → ; reserve stack space: variable → [rbp-offset]
+    ; if initialized:
+    mov eax, <expression>
+    mov [rbp-offset], eax
+
+ident "=" expression ";"
+  → ; evaluate expression into eax
+    mov [rbp-offset], eax
+
+ident "++" ";"
+  → add dword [rbp-offset], 1
+
+ident "--" ";"
+  → sub dword [rbp-offset], 1
+
+"if" "(" comparison ")" block
+  → ; evaluate comparison (sets flags via cmp)
+    j<inverse> .Lelse_N     ; jump past if-body when false
+    ; ... if block ...
+    jmp .Lendif_N            ; skip else block
+    .Lelse_N:
+    ; ... else block (if present) ...
+    .Lendif_N:
+
+"while" "(" comparison ")" block
+  → .Lwhile_N:
+    ; evaluate comparison (sets flags via cmp)
+    j<inverse> .Lendwhile_N  ; jump past body when false
+    ; ... while block ...
+    jmp .Lwhile_N            ; loop back
+    .Lendwhile_N:
+
+"for" "(" declaration ";" comparison ";" ident "=" expression ")" block
+  → ; declaration (init)
+    .Lfor_N:
+    ; evaluate comparison
+    j<inverse> .Lendfor_N    ; exit when false
+    ; ... for block ...
+    ; ident = expression (update)
+    jmp .Lfor_N              ; loop back
+    .Lendfor_N:
+
+"return" [expression] ";"
+  → mov eax, <expression>    ; put return value in eax (skip if void)
+    leave
+    ret
+
+comparison ::= expression (("==" | "!=" | ">" | ">=" | "<" | "<=") expression)+
+  → ; left expression → eax
+    ; right expression → push then pop to ebx
+    cmp eax, ebx
+    ; conditional jump uses INVERSE of operator:
+    ;   ==  → jne
+    ;   !=  → je
+    ;   >   → jle
+    ;   >=  → jl
+    ;   <   → jge
+    ;   <=  → jg
+
+expression ::= term {("+" | "-") term}
+  → ; first term → eax
+    ; for each + term:
+      push rax
+      ; next term → eax
+      pop rbx
+      add eax, ebx
+    ; for each - term:
+      push rax
+      ; next term → eax
+      mov ebx, eax
+      pop rax
+      sub eax, ebx
+
+term ::= unary {("/" | "*" | "%") unary}
+  → ; first unary → eax
+    ; for each * unary:
+      push rax
+      ; next unary → eax
+      pop rbx
+      imul eax, ebx
+    ; for each / unary:
+      push rax
+      ; next unary → eax
+      mov ebx, eax
+      pop rax
+      cdq               ; sign extend eax into edx:eax
+      idiv ebx          ; eax = quotient, edx = remainder
+    ; for each % unary:
+      ; same as / but result is in edx
+
+unary ::= ["+" | "-" | "!"] primary
+  → ; if -:
+      ; primary → eax
+      neg eax
+    ; if !:
+      ; primary → eax
+      cmp eax, 0
+      sete al
+      movzx eax, al
+    ; if + or none:
+      ; primary → eax
+
+primary ::= number | ident | string | "(" expression ")" | ident "(" [args] ")"
+  → number:
+      mov eax, <number>
+    ident:
+      mov eax, [rbp-offset]
+    string:
+      ; string stored in .data as str_N: db "...", 0
+      lea rax, [rel str_N]
+    "(" expression ")":
+      ; just evaluate expression, result in eax
+    ident "(" [args] ")":
+      ; push args into rdi, rsi, rdx, rcx, r8, r9 (right to left onto stack first if needed)
+      call ident
+      ; result in eax
+
+args ::= expression {"," expression}
+  → ; evaluate each expression, place in arg registers:
+    ; arg1 → edi, arg2 → esi, arg3 → edx, arg4 → ecx, arg5 → r8d, arg6 → r9d
+
+Register Usage:
+  eax  — primary working register, return values
+  ebx  — secondary register for binary operations
+  ecx  — counter (for loops internally)
+  edx  — used by division (remainder), 3rd arg
+  rsp  — stack pointer (don't touch directly)
+  rbp  — base pointer (frame reference)
+  rdi, rsi, rdx, rcx, r8, r9 — function call arguments
+
+Stack Frame Layout:
+  [rbp+16]  → 7th+ function argument (if any)
+  [rbp+8]   → return address
+  [rbp]     → saved rbp
+  [rbp-4]   → 1st local variable or 1st param
+  [rbp-8]   → 2nd local variable or 2nd param
+  ...
