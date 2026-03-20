@@ -1,6 +1,7 @@
 package main
 
 import (
+	"C_Compiler/emitter"
 	"C_Compiler/lexer"
 	"C_Compiler/parser"
 	"fmt"
@@ -20,8 +21,10 @@ func main() {
 	}
 
 	l := lexer.NewLexer(string(source))
-	p := parser.NewParser(l)
+	e := emitter.NewEmitter("out.asm")
+	p := parser.NewParser(l, e)
 
 	p.Program()
-	fmt.Println("Parsing completed.")
+	e.WriteFile()
+	fmt.Println("Compiling completed.")
 }
