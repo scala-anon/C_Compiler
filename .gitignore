@@ -1,0 +1,4 @@
+out
+out.asm
+out.o
+*.o
