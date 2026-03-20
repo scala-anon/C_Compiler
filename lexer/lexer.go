@@ -5,15 +5,15 @@ import (
 	"os"
 )
 
-type Lexer struct{
-	Source string
+type Lexer struct {
+	Source  string
 	CurChar byte
-	CurPos int 
+	CurPos  int
 }
 
 func NewLexer(source string) *Lexer {
 	l := &Lexer{
-		Source: source + "\n",	
+		Source: source + "\n",
 		CurPos: -1,
 	}
 	l.NextChar()
@@ -21,68 +21,110 @@ func NewLexer(source string) *Lexer {
 }
 
 // Process the next character
-func (l *Lexer) NextChar(){
+func (l *Lexer) NextChar() {
 	l.CurPos++
-	if l.CurPos >= len(l.Source){
-		l.CurChar = 0 // EOF 
+	if l.CurPos >= len(l.Source) {
+		l.CurChar = 0 // EOF
 	} else {
 		l.CurChar = l.Source[l.CurPos]
 	}
 }
 
 // Return the lookahead character
-func (l *Lexer) Peek() byte{
-	if l.CurPos + 1 >= len(l.Source){
+func (l *Lexer) Peek() byte {
+	if l.CurPos+1 >= len(l.Source) {
 		return 0
 	}
-	return l.Source[l.CurPos + 1]
+	return l.Source[l.CurPos+1]
 }
 
-// Invalid token found, print error message and exit 
-func (l *Lexer) Abort(message string){
+// Invalid token found, print error message and exit
+func (l *Lexer) Abort(message string) {
 	fmt.Println("Lexing Error: " + message)
 	os.Exit(1)
 }
 
-// Skip whitespace except newlines, which we will use to indicate the end of a statement
-func (l *Lexer) SkipWhitespace(){
-	for l.CurChar == ' ' || l.CurChar == '\t' || l.CurChar == '\r' {
+// Skip whitespace including newlines (C doesn't care about newlines)
+func (l *Lexer) SkipWhitespace() {
+	for l.CurChar == ' ' || l.CurChar == '\t' || l.CurChar == '\r' || l.CurChar == '\n' {
 		l.NextChar()
 	}
 }
 
-// Skip commnets in the code
-func (l* Lexer) SkipComments(){
-	if l.CurChar == '#' {
+// Skip // line comments and /* */ block comments
+func (l *Lexer) SkipComments() {
+	if l.CurChar == '/' && l.Peek() == '/' {
+		// Line comment: skip until newline
 		for l.CurChar != '\n' {
 			l.NextChar()
 		}
+		l.NextChar() // skip the newline too
+	} else if l.CurChar == '/' && l.Peek() == '*' {
+		// Block comment: skip until */
+		l.NextChar() // skip /
+		l.NextChar() // skip *
+		for !(l.CurChar == '*' && l.Peek() == '/') {
+			if l.CurChar == 0 {
+				l.Abort("Unterminated block comment.")
+			}
+			l.NextChar()
+		}
+		l.NextChar() // skip *
+		l.NextChar() // skip /
 	}
 }
 
 // Return the next token
-func (l *Lexer) GetToken() Token{
+func (l *Lexer) GetToken() Token {
 	l.SkipWhitespace()
 	l.SkipComments()
+	l.SkipWhitespace()
 	var token Token
 
 	switch l.CurChar {
-		// Single Character Operators
-	case '+':
-		token = NewToken(string(l.CurChar), PLUS)
-	case '-':
-		token = NewToken(string(l.CurChar), MINUS)
+	// Delimiters
+	case '{':
+		token = NewToken(string(l.CurChar), LBRACE)
+	case '}':
+		token = NewToken(string(l.CurChar), RBRACE)
+	case '(':
+		token = NewToken(string(l.CurChar), LPAREN)
+	case ')':
+		token = NewToken(string(l.CurChar), RPAREN)
+	case '[':
+		token = NewToken(string(l.CurChar), LBRACKET)
+	case ']':
+		token = NewToken(string(l.CurChar), RBRACKET)
+	case ';':
+		token = NewToken(string(l.CurChar), SEMICOLON)
+	case ',':
+		token = NewToken(string(l.CurChar), COMMA)
+
+	// Operators
 	case '*':
 		token = NewToken(string(l.CurChar), ASTERISK)
+	case '%':
+		token = NewToken(string(l.CurChar), PERCENT)
+	case '+':
+		if l.Peek() == '+' {
+			lastChar := l.CurChar
+			l.NextChar()
+			token = NewToken(string(lastChar)+string(l.CurChar), PLUSPLUS)
+		} else { 
+			token = NewToken(string(l.CurChar), PLUS)
+		}
+	case '-':
+		if l.Peek() == '-' {
+			lastChar := l.CurChar
+			l.NextChar()
+			token = NewToken(string(lastChar)+string(l.CurChar), MINUSMINUS)
+		} else {
+			token = NewToken(string(l.CurChar), MINUS)
+		}
 	case '/':
 		token = NewToken(string(l.CurChar), SLASH)
-	case '\n':
-		token = NewToken(string(l.CurChar), NEWLINE)
-	case 0:
-		token = NewToken("", EOF)
-		// Double Character Operators
 	case '=':
-		if l.Peek() == '='{
+		if l.Peek() == '=' {
 			lastChar := l.CurChar
 			l.NextChar()
 			token = NewToken(string(lastChar)+string(l.CurChar), EQEQ)
@@ -98,7 +140,7 @@ func (l *Lexer) GetToken() Token{
 			token = NewToken(string(l.CurChar), GT)
 		}
 	case '<':
-		if l.Peek() == '='{
+		if l.Peek() == '=' {
 			lastChar := l.CurChar
 			l.NextChar()
 			token = NewToken(string(lastChar)+string(l.CurChar), LTEQ)
@@ -106,13 +148,32 @@ func (l *Lexer) GetToken() Token{
 			token = NewToken(string(l.CurChar), LT)
 		}
 	case '!':
-		if l.Peek() == '='{
+		if l.Peek() == '=' {
 			lastChar := l.CurChar
 			l.NextChar()
 			token = NewToken(string(lastChar)+string(l.CurChar), NOTEQ)
 		} else {
-			l.Abort("Expected !=, got !" + string(l.Peek()))
+			token = NewToken(string(l.CurChar), NOT)
 		}
+	case '&':
+		if l.Peek() == '&' {
+			lastChar := l.CurChar
+			l.NextChar()
+			token = NewToken(string(lastChar)+string(l.CurChar), AND)
+		} else {
+			l.Abort("Expected &&, got &")
+		}
+	case '|':
+		if l.Peek() == '|' {
+			lastChar := l.CurChar
+			l.NextChar()
+			token = NewToken(string(lastChar)+string(l.CurChar), OR)
+		} else {
+			l.Abort("Expected ||, got |")
+		}
+
+	case 0:
+		token = NewToken("", EOF)
 
 	default:
 		if l.CurChar == '"' {
@@ -120,24 +181,24 @@ func (l *Lexer) GetToken() Token{
 			l.NextChar()
 			startPos := l.CurPos
 			for l.CurChar != '"' {
-				// Don't allow special characters in the string.
-				if l.CurChar == '\r' || l.CurChar == '\n' || l.CurChar == '\t' || l.CurChar == '\\' || l.CurChar == '%' {
-					l.Abort("Illegal character in string.")
+				if l.CurChar == 0 {
+					l.Abort("Unterminated string.")
+				}
+				if l.CurChar == '\\' {
+					l.NextChar() // skip the escaped character
 				}
 				l.NextChar()
 			}
 			token = NewToken(l.Source[startPos:l.CurPos], STRING)
 
 		} else if l.CurChar >= '0' && l.CurChar <= '9' {
-			// Leading character is a digit, so this must be a number.
 			// Get all consecutive digits and decimal if there is one.
 			startPos := l.CurPos
 			for l.Peek() >= '0' && l.Peek() <= '9' {
 				l.NextChar()
 			}
-			if l.Peek() == '.' { // Decimal!
+			if l.Peek() == '.' {
 				l.NextChar()
-				// Must have at least one digit after decimal.
 				if l.Peek() < '0' || l.Peek() > '9' {
 					l.Abort("Illegal character in number.")
 				}
@@ -147,14 +208,12 @@ func (l *Lexer) GetToken() Token{
 			}
 			token = NewToken(l.Source[startPos:l.CurPos+1], NUMBER)
 
-		} else if (l.CurChar >= 'a' && l.CurChar <= 'z') || (l.CurChar >= 'A' && l.CurChar <= 'Z') {
-			// Leading character is a letter, so this must be an identifier or a keyword.
-			// Get all consecutive alpha numeric characters.
+		} else if (l.CurChar >= 'a' && l.CurChar <= 'z') || (l.CurChar >= 'A' && l.CurChar <= 'Z') || l.CurChar == '_' {
+			// Identifiers and keywords. C allows underscores in identifiers.
 			startPos := l.CurPos
-			for (l.Peek() >= 'a' && l.Peek() <= 'z') || (l.Peek() >= 'A' && l.Peek() <= 'Z') || (l.Peek() >= '0' && l.Peek() <= '9') {
+			for (l.Peek() >= 'a' && l.Peek() <= 'z') || (l.Peek() >= 'A' && l.Peek() <= 'Z') || (l.Peek() >= '0' && l.Peek() <= '9') || l.Peek() == '_' {
 				l.NextChar()
 			}
-			// Check if the token is in the list of keywords.
 			tokText := l.Source[startPos : l.CurPos+1]
 			keyword := CheckIfKeyword(tokText)
 			if keyword == -1 {
@@ -170,5 +229,3 @@ func (l *Lexer) GetToken() Token{
 	l.NextChar()
 	return token
 }
-
-
